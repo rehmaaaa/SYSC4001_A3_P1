@@ -3,7 +3,7 @@
  * @brief Event-Driven Priority (EP) scheduler
  */
 
-#include<interrupts_student1_student2.hpp>
+#include "interrupts_101268686_101311227.hpp"
 
 // Pick next process by priority (lower PID = higher priority)
 void EP_pick_next(std::vector<PCB> &ready_queue,

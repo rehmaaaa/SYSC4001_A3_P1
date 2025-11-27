@@ -1,116 +1,170 @@
-#include <interrupts_student1_student2.hpp>
+#include "interrupts_101268686_101311227.hpp"
 
-std::tuple<std::string> run_simulation(std::vector<PCB> list_processes)
-{
+#define TIME_QUANTUM 2   // you can change this if your prof used a different quantum
+
+// Pick next process from ready queue (front) and put it on CPU
+static void RR_pick_next(std::vector<PCB> &ready_queue,
+                         PCB &running,
+                         std::vector<PCB> &job_list,
+                         unsigned int current_time,
+                         std::string &log) {
+    if (ready_queue.empty()) return;
+
+    PCB p = ready_queue.front();
+    ready_queue.erase(ready_queue.begin());
+
+    if (p.start_time == -1) {
+        p.start_time = current_time;
+    }
+
+    log += print_exec_status(current_time, p.PID, READY, RUNNING);
+    p.state = RUNNING;
+    running = p;
+    sync_queue(job_list, running);
+}
+
+std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
+
+    std::string log = print_exec_header();
+    unsigned int current_time = 0;
+
+    std::vector<PCB> job_list;
     std::vector<PCB> ready_queue;
     std::vector<PCB> wait_queue;
-    std::vector<PCB> job_list;
+    std::vector<unsigned int> wait_io_done;
+
+    std::vector<bool> admitted(list_processes.size(), false);
 
     PCB running;
     idle_CPU(running);
+    unsigned int slice_used = 0;
 
-    unsigned int current_time = 0;
-    unsigned int quantum = 2; // RR quantum
+    auto all_done = [&]() {
+        if (job_list.empty()) return false;
+        return all_process_terminated(job_list);
+    };
 
-    std::string out = print_exec_header();
+    while (!all_done()) {
 
-    while (true)
-    {
-        bool any_active = false;
-        for (auto &p : job_list)
-            if (p.state != TERMINATED) any_active = true;
-
-        if (!any_active && job_list.size() > 0)
-            break;
-
-        for (auto &p : list_processes)
-        {
-            if (p.arrival_time == current_time)
-            {
+        // 1) New arrivals
+        for (std::size_t i = 0; i < list_processes.size(); ++i) {
+            PCB &p = list_processes[i];
+            if (!admitted[i] && p.arrival_time == current_time) {
                 assign_memory(p);
                 p.state = READY;
                 ready_queue.push_back(p);
                 job_list.push_back(p);
-                out += print_exec_status(current_time, p.PID, NEW, READY);
+                admitted[i] = true;
+                log += print_exec_status(current_time, p.PID, NEW, READY);
             }
         }
 
-        // I/O queue
-        for (auto &p : wait_queue)
-        {
-            if (p.remaining_time == p.io_duration)
-            {
+        // 2) I/O completions
+        for (std::size_t i = 0; i < wait_queue.size(); ) {
+            if (wait_io_done[i] == current_time) {
+                PCB &p = wait_queue[i];
                 p.state = READY;
+                log += print_exec_status(current_time, p.PID, WAITING, READY);
                 ready_queue.push_back(p);
-                out += print_exec_status(current_time, p.PID, WAITING, READY);
-                p.remaining_time = p.processing_time;
+                sync_queue(job_list, p);
+                wait_queue.erase(wait_queue.begin() + i);
+                wait_io_done.erase(wait_io_done.begin() + i);
+            } else {
+                ++i;
             }
-            else
-                p.remaining_time++;
         }
 
-        // EP — priority sort
-        std::sort(ready_queue.begin(), ready_queue.end(),
-                  [](const PCB &a, const PCB &b){ return a.PID < b.PID; });
+        // 3) If CPU idle, pick next process (RR)
+        if (running.PID == -1 && !ready_queue.empty()) {
+            RR_pick_next(ready_queue, running, job_list, current_time, log);
+            slice_used = 0;
+        }
 
-        // RR — rotate for fairness
-        if (!ready_queue.empty())
-        {
-            PCB cur = ready_queue.front();
-            ready_queue.erase(ready_queue.begin());
+        // 4) Execute one time unit on CPU
+        if (running.PID != -1) {
 
-            if (cur.state != RUNNING)
-                out += print_exec_status(current_time, cur.PID, READY, RUNNING);
+            running.remaining_time--;
+            slice_used++;
 
-            cur.state = RUNNING;
+            unsigned int executed = running.processing_time - running.remaining_time;
 
-            unsigned int work = std::min(cur.remaining_time, quantum);
-            cur.remaining_time -= work;
-            current_time += work;
-
-            if (cur.remaining_time == 0)
-            {
-                out += print_exec_status(current_time, cur.PID, RUNNING, TERMINATED);
-                cur.state = TERMINATED;
-                free_memory(cur);
-            }
-            else
-            {
-                out += print_exec_status(current_time, cur.PID, RUNNING, READY);
-                cur.state = READY;
-                ready_queue.push_back(cur);
+            bool will_do_io = false;
+            if (running.io_freq > 0 &&
+                running.io_duration > 0 &&
+                (executed % running.io_freq == 0) &&
+                running.remaining_time > 0) {
+                will_do_io = true;
             }
 
-            continue;
+            if (will_do_io) {
+                // RUNNING -> WAITING
+                running.state = WAITING;
+                log += print_exec_status(current_time + 1, running.PID, RUNNING, WAITING);
+                wait_queue.push_back(running);
+                wait_io_done.push_back(current_time + 1 + running.io_duration);
+                sync_queue(job_list, running);
+                idle_CPU(running);
+                slice_used = 0;
+            }
+            else if (running.remaining_time == 0) {
+                // RUNNING -> TERMINATED
+                running.state = TERMINATED;
+                log += print_exec_status(current_time + 1, running.PID, RUNNING, TERMINATED);
+                free_memory(running);
+                sync_queue(job_list, running);
+                idle_CPU(running);
+                slice_used = 0;
+            }
+            else if (slice_used == TIME_QUANTUM) {
+                // Quantum expired: RUNNING -> READY (RR preemption)
+                running.state = READY;
+                log += print_exec_status(current_time + 1, running.PID, RUNNING, READY);
+                ready_queue.push_back(running);
+                sync_queue(job_list, running);
+                idle_CPU(running);
+                slice_used = 0;
+            }
+            else {
+                // Still RUNNING, just sync
+                sync_queue(job_list, running);
+            }
         }
 
         current_time++;
     }
 
-    out += print_exec_footer();
-    return {out};
+    log += print_exec_footer();
+    return std::make_tuple(log);
 }
 
-int main(int argc, char **argv)
-{
-    if (argc != 2)
-    {
-        std::cout << "Usage: ./interrupts_EP_RR <input_file>\n";
-        return 1;
+int main(int argc, char** argv) {
+
+    if (argc != 2) {
+        std::cout << "ERROR!\nExpected 1 argument, received " << argc - 1 << std::endl;
+        std::cout << "To run the program, do: ./interrupts_RR <your_input_file.txt>" << std::endl;
+        return -1;
     }
 
-    std::ifstream f(argv[1]);
+    auto file_name = argv[1];
+    std::ifstream input_file(file_name);
+
+    if (!input_file.is_open()) {
+        std::cerr << "Error: Unable to open file: " << file_name << std::endl;
+        return -1;
+    }
+
     std::string line;
-    std::vector<PCB> list;
-
-    while (std::getline(f, line))
-    {
-        auto parts = split_delim(line, ", ");
-        list.push_back(add_process(parts));
+    std::vector<PCB> list_process;
+    while (std::getline(input_file, line)) {
+        if (line.empty()) continue;
+        auto tokens = split_delim(line, ", ");
+        auto p = add_process(tokens);
+        list_process.push_back(p);
     }
+    input_file.close();
 
-    auto [exec] = run_simulation(list);
+    auto [exec] = run_simulation(list_process);
     write_output(exec, "execution.txt");
+
     return 0;
 }
-

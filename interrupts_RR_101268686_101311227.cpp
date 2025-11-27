@@ -1,4 +1,4 @@
-#include<interrupts_student1_student2.hpp>
+#include "interrupts_101268686_101311227.hpp"
 
 #define TIME_QUANTUM 2   // you can change this if your prof used a different quantum
 
