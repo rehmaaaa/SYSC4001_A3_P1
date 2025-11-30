@@ -48,7 +48,6 @@ def compute_metrics(entries):
 
     pids = sorted(set(pid for _, pid, _, _ in entries))
     proc = {}
-
     for pid in pids:
         proc[pid] = {
             "arrival": None,
@@ -63,11 +62,9 @@ def compute_metrics(entries):
     for t, pid, old, new in entries:
         info = proc[pid]
 
-        # Arrival time
         if old == "NEW" and new == "READY" and info["arrival"] is None:
             info["arrival"] = t
 
-        # READY waiting time
         if new == "READY":
             info["ready_since"] = t
 
@@ -75,28 +72,23 @@ def compute_metrics(entries):
             info["wait"] += t - info["ready_since"]
             info["ready_since"] = None
 
-        # Finish
         if new == "TERMINATED":
             info["finish"] = t
 
-        # I/O response
         if old == "RUNNING" and new == "WAITING":
             io_wait_start[pid] = t
-
         if old == "WAITING" and new == "READY":
             if pid in io_wait_start:
                 io_response_times.append(t - io_wait_start[pid])
                 del io_wait_start[pid]
 
-    # throughput
-    finishes = [info["finish"] for info in proc.values() if info["finish"] is not None]
+    finishes = [v["finish"] for v in proc.values() if v["finish"] is not None]
     if finishes:
         total_time = max(finishes)
         throughput = len(finishes) / total_time if total_time > 0 else 0.0
     else:
         throughput = 0.0
 
-    # wait + turnaround
     waits = []
     turnarounds = []
 
@@ -107,11 +99,7 @@ def compute_metrics(entries):
 
     avg_wait = sum(waits) / len(waits) if waits else 0.0
     avg_turnaround = sum(turnarounds) / len(turnarounds) if turnarounds else 0.0
-    avg_response = (
-        sum(io_response_times) / len(io_response_times)
-        if io_response_times
-        else 0.0
-    )
+    avg_response = sum(io_response_times) / len(io_response_times) if io_response_times else 0.0
 
     return {
         "throughput": throughput,
@@ -126,7 +114,7 @@ def main():
     metrics_path = os.path.join(BASE_DIR, "metrics_summary.csv")
 
     with open(metrics_path, "w", newline="") as csvfile:
-        fieldnames = [
+        fields = [
             "scheduler",
             "trace",
             "num_processes",
@@ -135,15 +123,11 @@ def main():
             "avg_turnaround",
             "avg_response",
         ]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer = csv.DictWriter(csvfile, fieldnames=fields)
         writer.writeheader()
 
-        # ---------------------------------------
-        # Parse EP_*, RR_*, EP_RR_* files
-        # ---------------------------------------
         for sched in SCHEDULERS:
             pattern = os.path.join(OUTPUT_DIR, f"{sched}_*.txt")
-
             for log_path in glob.glob(pattern):
                 log_name = os.path.basename(log_path)
 
@@ -159,27 +143,6 @@ def main():
                     "avg_turnaround": f"{m['avg_turnaround']:.2f}",
                     "avg_response": f"{m['avg_response']:.2f}",
                 })
-
-        # ---------------------------------------
-        # Parse execution_case_*.txt files
-        # ---------------------------------------
-        case_pattern = os.path.join(OUTPUT_DIR, "execution_case_*.txt")
-
-        for log_path in glob.glob(case_pattern):
-            log_name = os.path.basename(log_path)
-
-            entries = parse_log(log_path)
-            m = compute_metrics(entries)
-
-            writer.writerow({
-                "scheduler": "execution_case",
-                "trace": log_name,
-                "num_processes": m["num_procs"],
-                "throughput": f"{m['throughput']:.4f}",
-                "avg_wait": f"{m['avg_wait']:.2f}",
-                "avg_turnaround": f"{m['avg_turnaround']:.2f}",
-                "avg_response": f"{m['avg_response']:.2f}",
-            })
 
     print(f"Metrics written to {metrics_path}")
 
