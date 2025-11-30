@@ -1,11 +1,11 @@
 import os
 import csv
+import glob
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INPUT_DIR = os.path.join(BASE_DIR, "input_files")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output_files")
 
-SCHEDULERS = ["EP", "RR", "EP_RR"]  # matches EP_traceX.txt, RR_traceX.txt, EP_RR_traceX.txt
+SCHEDULERS = ["EP", "RR", "EP_RR"]
 
 
 def parse_log(path):
@@ -32,7 +32,6 @@ def parse_log(path):
 
             entries.append((t, pid, old, new))
 
-    # Ensure sorted by time (just in case)
     entries.sort(key=lambda x: x[0])
     return entries
 
@@ -48,57 +47,48 @@ def compute_metrics(entries):
         }
 
     pids = sorted(set(pid for _, pid, _, _ in entries))
-
-    # Per-process info
     proc = {}
+
     for pid in pids:
         proc[pid] = {
             "arrival": None,
             "finish": None,
             "wait": 0,
             "ready_since": None,
-            "state": None,
-            "last_t": None,
         }
 
-    # For I/O response: RUNNING -> WAITING to WAITING -> READY
-    io_wait_start = {}  # pid -> time
+    io_wait_start = {}
     io_response_times = []
 
     for t, pid, old, new in entries:
         info = proc[pid]
 
-        # Arrival time: first NEW -> READY
+        # Arrival time
         if old == "NEW" and new == "READY" and info["arrival"] is None:
             info["arrival"] = t
 
-        # READY waiting time:
-        # when process ENTERS READY, remember the time
+        # READY waiting time
         if new == "READY":
             info["ready_since"] = t
 
-        # when process leaves READY to RUNNING, add to wait
         if old == "READY" and new == "RUNNING" and info["ready_since"] is not None:
             info["wait"] += t - info["ready_since"]
             info["ready_since"] = None
 
-        # Termination time
+        # Finish
         if new == "TERMINATED":
             info["finish"] = t
 
-        # I/O response time: time spent in WAITING
+        # I/O response
         if old == "RUNNING" and new == "WAITING":
             io_wait_start[pid] = t
+
         if old == "WAITING" and new == "READY":
             if pid in io_wait_start:
                 io_response_times.append(t - io_wait_start[pid])
                 del io_wait_start[pid]
 
-        # Update state
-        info["state"] = new
-        info["last_t"] = t
-
-    # Throughput: number of finished processes / total time
+    # throughput
     finishes = [info["finish"] for info in proc.values() if info["finish"] is not None]
     if finishes:
         total_time = max(finishes)
@@ -106,7 +96,7 @@ def compute_metrics(entries):
     else:
         throughput = 0.0
 
-    # Average wait and turnaround
+    # wait + turnaround
     waits = []
     turnarounds = []
 
@@ -117,10 +107,10 @@ def compute_metrics(entries):
 
     avg_wait = sum(waits) / len(waits) if waits else 0.0
     avg_turnaround = sum(turnarounds) / len(turnarounds) if turnarounds else 0.0
-
-    # Average response time (I/O)
     avg_response = (
-        sum(io_response_times) / len(io_response_times) if io_response_times else 0.0
+        sum(io_response_times) / len(io_response_times)
+        if io_response_times
+        else 0.0
     )
 
     return {
@@ -148,29 +138,48 @@ def main():
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
+        # ---------------------------------------
+        # Parse EP_*, RR_*, EP_RR_* files
+        # ---------------------------------------
         for sched in SCHEDULERS:
-            for i in range(1, 21):
-                log_name = f"{sched}_trace{i}.txt"
-                log_path = os.path.join(OUTPUT_DIR, log_name)
+            pattern = os.path.join(OUTPUT_DIR, f"{sched}_*.txt")
 
-                if not os.path.exists(log_path):
-                    # Skip missing logs (e.g., if EP_RR_trace1 was named differently)
-                    continue
+            for log_path in glob.glob(pattern):
+                log_name = os.path.basename(log_path)
 
                 entries = parse_log(log_path)
                 m = compute_metrics(entries)
 
-                writer.writerow(
-                    {
-                        "scheduler": sched,
-                        "trace": i,
-                        "num_processes": m["num_procs"],
-                        "throughput": f"{m['throughput']:.4f}",
-                        "avg_wait": f"{m['avg_wait']:.2f}",
-                        "avg_turnaround": f"{m['avg_turnaround']:.2f}",
-                        "avg_response": f"{m['avg_response']:.2f}",
-                    }
-                )
+                writer.writerow({
+                    "scheduler": sched,
+                    "trace": log_name,
+                    "num_processes": m["num_procs"],
+                    "throughput": f"{m['throughput']:.4f}",
+                    "avg_wait": f"{m['avg_wait']:.2f}",
+                    "avg_turnaround": f"{m['avg_turnaround']:.2f}",
+                    "avg_response": f"{m['avg_response']:.2f}",
+                })
+
+        # ---------------------------------------
+        # Parse execution_case_*.txt files
+        # ---------------------------------------
+        case_pattern = os.path.join(OUTPUT_DIR, "execution_case_*.txt")
+
+        for log_path in glob.glob(case_pattern):
+            log_name = os.path.basename(log_path)
+
+            entries = parse_log(log_path)
+            m = compute_metrics(entries)
+
+            writer.writerow({
+                "scheduler": "execution_case",
+                "trace": log_name,
+                "num_processes": m["num_procs"],
+                "throughput": f"{m['throughput']:.4f}",
+                "avg_wait": f"{m['avg_wait']:.2f}",
+                "avg_turnaround": f"{m['avg_turnaround']:.2f}",
+                "avg_response": f"{m['avg_response']:.2f}",
+            })
 
     print(f"Metrics written to {metrics_path}")
 
