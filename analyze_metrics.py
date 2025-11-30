@@ -5,7 +5,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_DIR = os.path.join(BASE_DIR, "input_files")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output_files")
 
-SCHEDULERS = ["EP", "RR", "EP_RR"]  # matches EP_traceX.txt, RR_traceX.txt, EP_RR_traceX.txt
+SCHEDULERS = ["EP", "RR", "EP_RR"]  
 
 
 def parse_log(path):
@@ -32,10 +32,8 @@ def parse_log(path):
 
             entries.append((t, pid, old, new))
 
-    # Ensure sorted by time (just in case)
     entries.sort(key=lambda x: x[0])
     return entries
-
 
 def compute_metrics(entries):
     if not entries:
@@ -61,23 +59,22 @@ def compute_metrics(entries):
             "last_t": None,
         }
 
-    # For I/O response: RUNNING -> WAITING to WAITING -> READY
+    #RUNNING -> WAITING to WAITING -> READY
     io_wait_start = {}  # pid -> time
     io_response_times = []
 
     for t, pid, old, new in entries:
         info = proc[pid]
 
-        # Arrival time: first NEW -> READY
+        # Arrival time: NEW -> READY
         if old == "NEW" and new == "READY" and info["arrival"] is None:
             info["arrival"] = t
 
-        # READY waiting time:
-        # when process ENTERS READY, remember the time
+        # READY waiting time: ENTERS READY
         if new == "READY":
             info["ready_since"] = t
 
-        # when process leaves READY to RUNNING, add to wait
+        # when process leaves READY to RUNNING
         if old == "READY" and new == "RUNNING" and info["ready_since"] is not None:
             info["wait"] += t - info["ready_since"]
             info["ready_since"] = None
