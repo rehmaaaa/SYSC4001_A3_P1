@@ -221,7 +221,7 @@ void write_output(std::string execution, const char* filename) {
         std::cerr << "Error opening file!" << std::endl;
     }
 
-    std::cout << "Output generated in " << filename << ".txt" << std::endl;
+    std::cout << "Output generated in " << filename << std::endl;
 }
 
 //--------------------------------------------FUNCTIONS FOR THE "OS"-------------------------------------

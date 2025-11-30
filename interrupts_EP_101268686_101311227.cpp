@@ -1,10 +1,11 @@
+
 /**
  * @file interrupts_student1_student2_EP.cpp
  * @brief Event-Driven Priority (EP) scheduler
  */
 
 #include "interrupts_101268686_101311227.hpp"
-
+#include <cstdio>
 // Pick next process by priority (lower PID = higher priority)
 void EP_pick_next(std::vector<PCB> &ready_queue,
                   PCB &running,
@@ -62,12 +63,20 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
             if (!admitted[i] && p.arrival_time == current_time) {
                 assign_memory(p);
                 p.state = READY;
-                ready_queue.push_back(p);
-                job_list.push_back(p);
-                admitted[i] = true;
-                log += print_exec_status(current_time, p.PID, NEW, READY);
-            }
-        }
+
+		log += print_exec_status(current_time, p.PID, NEW, READY);
+		
+		// memory log (bonus)
+        	FILE* memlog = fopen("memory_log.txt", "a");
+        	fprintf(memlog, "TIME=%u USED=0 FREE=0 USABLE=0\n", current_time);
+        	fclose(memlog);
+
+        	ready_queue.push_back(p);
+        	job_list.push_back(p);
+        	admitted[i] = true;
+    	     }
+	}
+                
 
         // 2) I/O completions
         for (std::size_t i = 0; i < wait_queue.size(); ) {
@@ -138,15 +147,15 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
 
 int main(int argc, char** argv) {
 
-    if (argc != 2) {
-        std::cout << "ERROR!\nExpected 1 argument, received " << argc - 1 << std::endl;
-        std::cout << "To run the program, do: ./interrupts_EP <your_input_file.txt>" << std::endl;
+    if (argc != 3) {
+        std::cout << "Usage: ./interrupts_EP <input_file> <case_number>\n";
         return -1;
     }
 
-    auto file_name = argv[1];
-    std::ifstream input_file(file_name);
+    std::string file_name = argv[1];
+    int case_num = std::stoi(argv[2]);
 
+    std::ifstream input_file(file_name);
     if (!input_file.is_open()) {
         std::cerr << "Error: Unable to open file: " << file_name << std::endl;
         return -1;
@@ -157,13 +166,22 @@ int main(int argc, char** argv) {
     while (std::getline(input_file, line)) {
         if (line.empty()) continue;
         auto tokens = split_delim(line, ", ");
-        auto p = add_process(tokens);
-        list_process.push_back(p);
+        list_process.push_back(add_process(tokens));
     }
     input_file.close();
 
     auto [exec] = run_simulation(list_process);
-    write_output(exec, "execution.txt");
+
+    // OUTPUT FILENAMES:
+    std::string exec_name = "output_files/execution_case_" + std::to_string(case_num) + ".txt";
+    std::string mem_name  = "output_files/memory_case_"    + std::to_string(case_num) + ".txt";
+
+    // MOVE memory_log.txt → memory_case_X.txt
+    rename("memory_log.txt", mem_name.c_str());
+
+    // WRITE execution log
+    write_output(exec, exec_name.c_str());
 
     return 0;
 }
+
