@@ -2,7 +2,7 @@
 
 #define TIME_QUANTUM 2   // you can change this if your prof used a different quantum
 
-// Pick next process from ready queue (front) and put it on CPU
+// pick next process from ready queue and put it on CPU
 static void RR_pick_next(std::vector<PCB> &ready_queue,
                          PCB &running,
                          std::vector<PCB> &job_list,
@@ -46,7 +46,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
 
     while (!all_done()) {
 
-        // 1) New arrivals
+        // 1) new arrival
         for (std::size_t i = 0; i < list_processes.size(); ++i) {
             PCB &p = list_processes[i];
             if (!admitted[i] && p.arrival_time == current_time) {
@@ -62,7 +62,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
             }
         }
 
-        // 2) I/O completions
+        // 2) I/O completion
         for (std::size_t i = 0; i < wait_queue.size(); ) {
             if (wait_io_done[i] == current_time) {
                 PCB &p = wait_queue[i];
@@ -77,13 +77,13 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
             }
         }
 
-        // 3) If CPU idle, pick next process (RR)
+        // 3) if CPU is idle, pick next process (RR)
         if (running.PID == -1 && !ready_queue.empty()) {
             RR_pick_next(ready_queue, running, job_list, current_time, log);
             slice_used = 0;
         }
 
-        // 4) Execute one time unit on CPU
+        // 4) execute one  unit on CPU
         if (running.PID != -1) {
 
             running.remaining_time--;
