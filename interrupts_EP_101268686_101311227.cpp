@@ -1,12 +1,12 @@
 
 /**
  * @file interrupts_student1_student2_EP.cpp
- * @brief Event-Driven Priority (EP) scheduler
+ *
  */
 
 #include "interrupts_101268686_101311227.hpp"
 #include <cstdio>
-// Pick next process by priority (lower PID = higher priority)
+// Pick next process (lower PID = higher priority)
 void EP_pick_next(std::vector<PCB> &ready_queue,
                   PCB &running,
                   std::vector<PCB> &job_list,
@@ -57,7 +57,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
 
     while (!all_done()) {
 
-        // 1) New arrivals
+        // 1) new arrival
         for (std::size_t i = 0; i < list_processes.size(); ++i) {
             PCB &p = list_processes[i];
             if (!admitted[i] && p.arrival_time == current_time) {
@@ -66,7 +66,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
 
 		log += print_exec_status(current_time, p.PID, NEW, READY);
 		
-		// memory log (bonus)
+		// (bonus)
         	FILE* memlog = fopen("memory_log.txt", "a");
         	fprintf(memlog, "TIME=%u USED=0 FREE=0 USABLE=0\n", current_time);
         	fclose(memlog);
@@ -78,7 +78,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
 	}
                 
 
-        // 2) I/O completions
+        // 2) I/O completion
         for (std::size_t i = 0; i < wait_queue.size(); ) {
             if (wait_io_done[i] == current_time) {
                 PCB &p = wait_queue[i];
@@ -93,18 +93,18 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
             }
         }
 
-        // 3) If CPU idle, pick next by priority
+        // 3) if CPU idle then pick next with  priority
         if (running.PID == -1 && !ready_queue.empty()) {
             EP_pick_next(ready_queue, running, job_list, current_time, log);
         }
 
-        // 4) Execute one time unit on the running process
+        // 4) Execute once on the running process
         if (running.PID != -1) {
 
-            // Consume 1 CPU unit
+            // take 1 cpu unit
             running.remaining_time--;
 
-            // How much CPU has this process executed in total?
+            // shows how much CPU the process executed in total
             unsigned int executed = running.processing_time - running.remaining_time;
 
             bool will_do_io = false;
@@ -116,7 +116,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
             }
 
             if (will_do_io) {
-                // RUNNING -> WAITING at end of this time unit
+                // RUNNING -> WAITING at end of time unit
                 running.state = WAITING;
                 log += print_exec_status(current_time + 1, running.PID, RUNNING, WAITING);
                 wait_queue.push_back(running);
@@ -125,7 +125,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
                 idle_CPU(running);
             }
             else if (running.remaining_time == 0) {
-                // RUNNING -> TERMINATED at end of this time unit
+                // RUNNING -> TERMINATED at end of time unit
                 running.state = TERMINATED;
                 log += print_exec_status(current_time + 1, running.PID, RUNNING, TERMINATED);
                 free_memory(running);
@@ -133,7 +133,7 @@ std::tuple<std::string> run_simulation(std::vector<PCB> list_processes) {
                 idle_CPU(running);
             }
             else {
-                // Still RUNNING, just sync state
+                // Still RUNNING, now sync state
                 sync_queue(job_list, running);
             }
         }
